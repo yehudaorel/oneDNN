@@ -25,6 +25,19 @@
 #include "oneapi/dnnl/dnnl_sycl.h"
 #endif
 
+#if DNNL_GPU_RUNTIME == DNNL_RUNTIME_OCL
+#include "utils/ocl_philox.h"
+#define OCL_TEST(x) \
+    do { \
+        cl_int s = (x); \
+        if (s != CL_SUCCESS) { \
+            std::cout << "[" << __FILE__ << ":" << __LINE__ << "] '" << #x \
+                      << "' failed (status code: " << s << ")." << std::endl; \
+            exit(1); \
+        } \
+    } while (0)
+#endif
+
 #include "common.hpp"
 #include "utils/dims.hpp"
 #include "utils/wrapper.hpp"
@@ -151,6 +164,7 @@ struct dnn_mem_t {
     void map() const;
     void unmap() const;
     void memset(int value, size_t size) const;
+    dnnl_status_t memset_rng(size_t size) const;
 
     static dnn_mem_t create_from_host_ptr(
             const dnnl_memory_desc_t &md, dnnl_engine_t engine, void *host_ptr);

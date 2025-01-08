@@ -548,6 +548,66 @@ void dnn_mem_t::memset(int value, size_t size) const {
     SAFE_V(FAIL);
 }
 
+dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
+    auto eng = dnnl::engine(engine_, true);
+    bool is_opencl = is_opencl_engine(engine_);
+    bool is_sycl = is_sycl_engine(engine_);
+    auto mem = m_padded_ ? m_padded_ : m_;
+    void *mem_handle;
+    DNN_SAFE_V(dnnl_memory_get_data_handle(mem, &mem_handle));
+    if (is_opencl) {
+#if DNNL_GPU_RUNTIME == DNNL_RUNTIME_OCL
+        stream_t stream(engine_);
+        switch (memory_kind) {
+            case memory_kind_ext_t::buffer: {
+                auto buf = static_cast<cl_mem>(mem_handle);
+                cl_command_queue queue;
+                DNN_SAFE_V(dnnl_ocl_interop_stream_get_command_queue(stream, &queue));
+                auto ocl_ctx = dnnl::ocl_interop::get_context(eng);
+                auto device = dnnl::ocl_interop::get_device(eng);
+
+                cl_int err;
+                const char *kernel_c_str = philox_rng_source;
+                cl_program philox_program = clCreateProgramWithSource(ocl_ctx, 1, &kernel_c_str, nullptr, &err);
+                OCL_TEST(err);
+                OCL_TEST(clBuildProgram(philox_program, 1, &device, nullptr, nullptr, nullptr));
+                cl_kernel ocl_kernel = clCreateKernel(philox_program, "philox_fill_kernel", &err);
+                OCL_TEST(err);
+                clReleaseProgram(philox_program);
+
+                //TODO: generate random seed to avoid repeating values
+                int seed = 12345;
+                size_t total_blocks = (size + 15) / 16;
+                size_t gsw_ulimit = 4096;
+                size_t gws = (total_blocks < gsw_ulimit) ? total_blocks : gsw_ulimit;
+
+                clSetKernelArg(ocl_kernel, 0, sizeof(cl_mem), &buf);
+                clSetKernelArg(ocl_kernel, 1, sizeof(size_t), &size);
+                clSetKernelArg(ocl_kernel, 2, sizeof(uint), &seed);
+
+                clEnqueueNDRangeKernel(queue, ocl_kernel,
+                                    1, nullptr, &gws, nullptr,
+                                    0, nullptr, nullptr);
+
+                DNN_SAFE_V(dnnl_stream_wait(stream));
+                clReleaseKernel(ocl_kernel);
+            }
+            case memory_kind_ext_t::usm:
+            case memory_kind_ext_t::usm_device:
+            case memory_kind_ext_t::usm_shared: {
+                return dnnl_status_t::dnnl_unimplemented;
+            }
+        }
+#endif
+    } else if (is_sycl) {
+#ifdef DNNL_WITH_SYCL
+        // TODO: add sycl support
+         return dnnl_status_t::dnnl_unimplemented;
+#endif
+    }
+    return dnnl_status_t::dnnl_success;
+}
+
 dnn_mem_t dnn_mem_t::create_from_host_ptr(
         const dnnl_memory_desc_t &md, dnnl_engine_t engine, void *host_ptr) {
     return dnn_mem_t(md, engine, {true, host_ptr});
@@ -918,8 +978,12 @@ int dnn_mem_t::initialize(
                 // TODO: consider enabling broadly for perf mode.
                 if (has_bench_mode_modifier(mode_modifier_t::no_ref_memory)
                         || cold_cache_mode != default_cold_cache_mode) {
-                    // Fill memory directly with 0x3F3F3F3F (0.747059f) number.
-                    this->memset(dnnl_mem_default_perf_test_value, sz);
+                    // Fill memory directly with random values
+                    // in case of fail set to default val
+                    auto s = this->memset_rng(sz);
+                    if (s != dnnl_status_t::dnnl_success){
+                        this->memset(dnnl_mem_default_value, sz);
+                    }
                 } else {
                     // Fill memory with a magic number (NAN for fp data types)
                     // to catch possible uninitialized access.
