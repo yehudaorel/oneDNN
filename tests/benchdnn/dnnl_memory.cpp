@@ -577,13 +577,12 @@ dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
 
                 //TODO: generate random seed to avoid repeating values
                 int seed = 12345;
-                size_t total_blocks = (size + 15) / 16;
-                size_t gsw_ulimit = 4096;
-                size_t gws = (total_blocks < gsw_ulimit) ? total_blocks : gsw_ulimit;
-
+                size_t blockSize = 1024;
+                size_t gws = (size + blockSize - 1) / blockSize;
                 clSetKernelArg(ocl_kernel, 0, sizeof(cl_mem), &buf);
                 clSetKernelArg(ocl_kernel, 1, sizeof(size_t), &size);
-                clSetKernelArg(ocl_kernel, 2, sizeof(uint), &seed);
+                clSetKernelArg(ocl_kernel, 2, sizeof(size_t), &blockSize);
+                clSetKernelArg(ocl_kernel, 3, sizeof(uint), &seed);
 
                 clEnqueueNDRangeKernel(queue, ocl_kernel,
                                     1, nullptr, &gws, nullptr,

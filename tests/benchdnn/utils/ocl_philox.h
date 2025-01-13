@@ -21,15 +21,7 @@ static const char *philox_rng_source = R"CLC(
 // Clear bits 30 & 14: 0xBFFFFFFF & 0xFFFFBFFF => 0xBFFFBFFF:
 #define INF_NAN_MASK 0xBFFFBFFF
 
-#define WRITE(dst, offset, r0, r1, r2, r3) \
-    do { \
-        ((__global uint *)((dst) + (offset)))[0] = (r0); \
-        ((__global uint *)((dst) + (offset)))[1] = (r1); \
-        ((__global uint *)((dst) + (offset)))[2] = (r2); \
-        ((__global uint *)((dst) + (offset)))[3] = (r3); \
-    } while (0)
-
-#define PARTIAL_WRITE(dst, offset, lbytes, r0, r1, r2, r3) \
+#define BYTE_WRITE(dst, offset, lbytes, r0, r1, r2, r3) \
     do { \
         __global uchar *data = (__global uchar *)(dst); \
         uint vals[4] = {(r0), (r1), (r2), (r3)}; \
@@ -40,6 +32,7 @@ static const char *philox_rng_source = R"CLC(
             data[offset + i] = b_val; \
         } \
     } while (0)
+
 
 inline uint philox_4x32(long idx, uint seed) {
 #define PHILOX_4UINT_ROUND(mul, ctr, key) \
@@ -69,23 +62,26 @@ inline uint philox_4x32(long idx, uint seed) {
     return ctr[~idx & 3L];
 }
 
-__kernel void philox_fill_kernel(__global uint *data, long nbytes, uint seed) {
+__kernel void philox_fill_kernel(
+        __global uint *data,
+        long nbytes,
+        long blockSize,
+        uint seed)
+{
     size_t gid = get_global_id(0);
-    size_t offset = gid * 16;
-
+    size_t offset = gid * blockSize;
     if (offset >= nbytes) return;
-    size_t leftover = nbytes - offset;
-    if (leftover > 16) leftover = 16;
 
-    // Generate 4x32-bit randoms
-    uint r0 = philox_4x32((long)(4*gid + 0), seed) & INF_NAN_MASK;
-    uint r1 = philox_4x32((long)(4*gid + 1), seed) & INF_NAN_MASK;
-    uint r2 = philox_4x32((long)(4*gid + 2), seed) & INF_NAN_MASK;
-    uint r3 = philox_4x32((long)(4*gid + 3), seed) & INF_NAN_MASK;
-    if (leftover == 16) {
-        WRITE(data, offset, r0, r1, r2, r3);
-    } else {
-        PARTIAL_WRITE(data, offset, leftover, r0, r1, r2, r3);
+    size_t leftover = nbytes - offset;
+    if (leftover > blockSize) leftover = blockSize;
+    size_t numIntsNeeded = (leftover + 15) / 16;
+
+    for (size_t i = 0; i < numIntsNeeded; i++) {
+        uint r0 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
+        uint r1 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
+        uint r2 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
+        uint r3 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
+        BYTE_WRITE(data, offset, leftover, r0, r1, r2, r3);
     }
 }
 )CLC";
