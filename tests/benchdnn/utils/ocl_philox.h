@@ -66,22 +66,22 @@ __kernel void philox_fill_kernel(
         __global uint *data,
         long nbytes,
         long blockSize,
-        uint seed)
-{
+        uint seed){
     size_t gid = get_global_id(0);
     size_t offset = gid * blockSize;
     if (offset >= nbytes) return;
 
     size_t leftover = nbytes - offset;
     if (leftover > blockSize) leftover = blockSize;
+    
     size_t numIntsNeeded = (leftover + 15) / 16;
-
+    uint rvals[4];
     for (size_t i = 0; i < numIntsNeeded; i++) {
-        uint r0 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
-        uint r1 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
-        uint r2 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
-        uint r3 = philox_4x32(((offset >> 2) + i), seed) & INF_NAN_MASK;
-        BYTE_WRITE(data, offset, leftover, r0, r1, r2, r3);
+        #pragma unroll
+        for (size_t j = 0; j < 4; j++) {
+            rvals[j] = philox_4x32(((offset >> 2) + j + i), seed) & INF_NAN_MASK;
+        }
+        BYTE_WRITE(data, offset, leftover, rvals[0], rvals[1], rvals[2], rvals[3]);
     }
 }
 )CLC";
