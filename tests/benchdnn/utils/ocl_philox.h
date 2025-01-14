@@ -15,24 +15,9 @@
 *******************************************************************************/
 
 
-#pragma once
-
 static const char *philox_rng_source = R"CLC(
 // Clear bits 30 & 14: 0xBFFFFFFF & 0xFFFFBFFF => 0xBFFFBFFF:
 #define INF_NAN_MASK 0xBFFFBFFF
-
-#define BYTE_WRITE(dst, offset, lbytes, r0, r1, r2, r3) \
-    do { \
-        __global uchar *data = (__global uchar *)(dst); \
-        uint vals[4] = {(r0), (r1), (r2), (r3)}; \
-        for (size_t i = 0; i < (lbytes); i++) { \
-            size_t w_idx = i >> 2; \
-            size_t b_idx = i & 3; \
-            uchar b_val = (uchar)((vals[w_idx] >> (8 * b_idx)) & 0xFF); \
-            data[offset + i] = b_val; \
-        } \
-    } while (0)
-
 
 inline uint philox_4x32(long idx, uint seed) {
 #define PHILOX_4UINT_ROUND(mul, ctr, key) \
@@ -67,21 +52,18 @@ __kernel void philox_fill_kernel(
         long nbytes,
         long blockSize,
         uint seed){
-    size_t gid = get_global_id(0);
-    size_t offset = gid * blockSize;
-    if (offset >= nbytes) return;
 
-    size_t leftover = nbytes - offset;
-    if (leftover > blockSize) leftover = blockSize;
-    
-    size_t numIntsNeeded = (leftover + 15) / 16;
-    uint rvals[4];
-    for (size_t i = 0; i < numIntsNeeded; i++) {
-        #pragma unroll
-        for (size_t j = 0; j < 4; j++) {
-            rvals[j] = philox_4x32(((offset >> 2) + j + i), seed) & INF_NAN_MASK;
-        }
-        BYTE_WRITE(data, offset, leftover, rvals[0], rvals[1], rvals[2], rvals[3]);
+    size_t gid = get_global_id(0);
+    size_t startOffset = gid * blockSize;
+    if (startOffset >= nbytes) return;
+
+    size_t endOffset = (startOffset + blockSize);
+    if (endOffset > nbytes) endOffset = nbytes;
+
+    # Write from startOffset -> endOffset
+    __attribute__((opencl_unroll_hint(4)))
+    for (size_t i = startOffset; i < endOffset; i+=4) {
+        data[i] = philox_4x32(i, seed) & INF_NAN_MASK;
     }
 }
 )CLC";

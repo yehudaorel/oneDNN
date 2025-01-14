@@ -26,7 +26,6 @@
 #endif
 
 #if DNNL_GPU_RUNTIME == DNNL_RUNTIME_OCL
-#include "utils/ocl_philox.h"
 #define OCL_TEST(x) \
     do { \
         cl_int s = (x); \

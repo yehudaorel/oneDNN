@@ -30,6 +30,7 @@
 #if DNNL_GPU_RUNTIME == DNNL_RUNTIME_OCL
 #include "oneapi/dnnl/dnnl_ocl.hpp"
 #include "src/xpu/ocl/usm_utils.hpp"
+#include "utils/ocl_philox.h"
 #endif
 
 #include "tests/test_thread.hpp"
@@ -577,7 +578,7 @@ dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
 
                 //TODO: generate random seed to avoid repeating values
                 int seed = 12345;
-                size_t blockSize = 1024;
+                size_t blockSize = fmax(1, size / 65536);
                 size_t gws = (size + blockSize - 1) / blockSize;
                 clSetKernelArg(ocl_kernel, 0, sizeof(cl_mem), &buf);
                 clSetKernelArg(ocl_kernel, 1, sizeof(size_t), &size);
@@ -639,6 +640,7 @@ dnnl_memory_desc_t dnn_mem_t::pad_memory_desc(const_dnnl_memory_desc_t md,
 
     size_t sz = pad_memory_size(old_sz, engine_kind, was_padded);
     if (sz == old_sz) return nullptr;
+
 
     dnnl_memory_desc_t ret;
     dnnl_dims_t dims = {(dnnl_dim_t)sz};
