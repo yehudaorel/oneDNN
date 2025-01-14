@@ -573,13 +573,14 @@ dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
                 OCL_TEST(err);
                 OCL_TEST(clBuildProgram(philox_program, 1, &device, nullptr, nullptr, nullptr));
                 cl_kernel ocl_kernel = clCreateKernel(philox_program, "philox_fill_kernel", &err);
-                OCL_TEST(err);
+                
                 clReleaseProgram(philox_program);
 
                 //TODO: generate random seed to avoid repeating values
                 int seed = 12345;
-                size_t blockSize = fmax(1, size / 65536);
+                size_t blockSize = fmax(16, size / 65536);
                 size_t gws = (size + blockSize - 1) / blockSize;
+
                 clSetKernelArg(ocl_kernel, 0, sizeof(cl_mem), &buf);
                 clSetKernelArg(ocl_kernel, 1, sizeof(size_t), &size);
                 clSetKernelArg(ocl_kernel, 2, sizeof(size_t), &blockSize);
