@@ -48,11 +48,12 @@ struct dnn_mem_t {
     struct handle_info_t {
         bool is_host_ptr;
         void *ptr;
+        bool is_rng;
 
         bool is_allocate() const { return ptr == DNNL_MEMORY_ALLOCATE; }
 
         static handle_info_t allocate() {
-            return {false, DNNL_MEMORY_ALLOCATE};
+            return {false, DNNL_MEMORY_ALLOCATE, true};
         }
     };
 
