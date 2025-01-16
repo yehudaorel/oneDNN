@@ -591,6 +591,7 @@ dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
 
                 DNN_SAFE_V(dnnl_stream_wait(stream));
                 clReleaseKernel(ocl_kernel);
+                return dnnl_status_t::dnnl_success;
             }
             case memory_kind_ext_t::usm:
             case memory_kind_ext_t::usm_device:
@@ -605,7 +606,7 @@ dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
          return dnnl_status_t::dnnl_unimplemented;
 #endif
     }
-    return dnnl_status_t::dnnl_success;
+    return dnnl_status_t::dnnl_unimplemented;
 }
 
 dnn_mem_t dnn_mem_t::create_from_host_ptr(
