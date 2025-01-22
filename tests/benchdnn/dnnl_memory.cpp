@@ -550,7 +550,6 @@ void dnn_mem_t::memset(int value, size_t size) const {
 }
 
 dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
-    auto eng = dnnl::engine(engine_, true);
     bool is_opencl = is_opencl_engine(engine_);
     bool is_sycl = is_sycl_engine(engine_);
     auto mem = m_padded_ ? m_padded_ : m_;
@@ -562,41 +561,66 @@ dnnl_status_t dnn_mem_t::memset_rng(size_t size) const {
         switch (memory_kind) {
             case memory_kind_ext_t::buffer: {
                 auto buf = static_cast<cl_mem>(mem_handle);
-                cl_command_queue queue;
-                DNN_SAFE_V(dnnl_ocl_interop_stream_get_command_queue(stream, &queue));
-                auto ocl_ctx = dnnl::ocl_interop::get_context(eng);
-                auto device = dnnl::ocl_interop::get_device(eng);
-
+                cl_command_queue ocl_queue;
+                cl_context ocl_ctx;
+                cl_device_id ocl_device; 
+                DNN_SAFE_V(dnnl_ocl_interop_stream_get_command_queue(stream, &ocl_queue));
+                DNN_SAFE_V(dnnl_ocl_interop_engine_get_context(engine_, &ocl_ctx));
+                DNN_SAFE_V(dnnl_ocl_interop_get_device(engine_, &ocl_device));
+ 
                 cl_int err;
                 const char *kernel_c_str = philox_rng_source;
                 cl_program philox_program = clCreateProgramWithSource(ocl_ctx, 1, &kernel_c_str, nullptr, &err);
-                OCL_TEST(err);
-                OCL_TEST(clBuildProgram(philox_program, 1, &device, nullptr, nullptr, nullptr));
+                OCL_TEST(clBuildProgram(philox_program, 1, &ocl_device, nullptr, nullptr, nullptr));
                 cl_kernel ocl_kernel = clCreateKernel(philox_program, "philox_fill_kernel", &err);
-                OCL_TEST(err);
-                clReleaseProgram(philox_program);
 
                 //TODO: generate random seed to avoid repeating values
-                size_t seed = 12345;
-                size_t blockSize = fmax(16, size / 65536);
-                size_t gws = (size + blockSize - 1) / blockSize;
+                uint64_t seed = 12345;
+                const uint64_t buffSize = (uint64_t)size;
+                const uint64_t blockSize = fmax(16, size / 65536);
+                const size_t gws = size / blockSize + (size % blockSize > 0 ? 1 : 0);
                 clSetKernelArg(ocl_kernel, 0, sizeof(cl_mem), &buf);
-                clSetKernelArg(ocl_kernel, 1, sizeof(size_t), &size);
-                clSetKernelArg(ocl_kernel, 2, sizeof(size_t), &blockSize);
-                clSetKernelArg(ocl_kernel, 3, sizeof(size_t), &seed);
+                clSetKernelArg(ocl_kernel, 1, sizeof(uint64_t), &buffSize);
+                clSetKernelArg(ocl_kernel, 2, sizeof(uint64_t), &blockSize);
+                clSetKernelArg(ocl_kernel, 3, sizeof(uint64_t), &seed);
 
-                clEnqueueNDRangeKernel(queue, ocl_kernel,
+                clEnqueueNDRangeKernel(ocl_queue, ocl_kernel,
                                     1, nullptr, &gws, nullptr,
                                     0, nullptr, nullptr);
 
                 DNN_SAFE_V(dnnl_stream_wait(stream));
-                clReleaseKernel(ocl_kernel);
                 return dnnl_status_t::dnnl_success;
             }
             case memory_kind_ext_t::usm:
             case memory_kind_ext_t::usm_device:
             case memory_kind_ext_t::usm_shared: {
-                return dnnl_status_t::dnnl_unimplemented;
+                cl_int err;
+                cl_command_queue ocl_queue;
+                cl_context ocl_ctx;
+                cl_device_id ocl_device; 
+                DNN_SAFE_V(dnnl_ocl_interop_engine_get_context(engine_, &ocl_ctx));
+                DNN_SAFE_V(dnnl_ocl_interop_get_device(engine_, &ocl_device));
+                DNN_SAFE_V(dnnl_ocl_interop_stream_get_command_queue(stream, &ocl_queue));
+
+                const char *kernel_c_str = philox_rng_source;
+                cl_program philox_program = clCreateProgramWithSource(ocl_ctx, 1, &kernel_c_str, nullptr, &err);
+                OCL_TEST(clBuildProgram(philox_program, 1, &ocl_device, nullptr, nullptr, nullptr));
+                cl_kernel ocl_kernel = clCreateKernel(philox_program, "philox_fill_kernel", &err);
+
+                uint64_t seed = 12345;
+                const uint64_t buffSize = (uint64_t)size;
+                const uint64_t blockSize = fmax(16, size / 65536);
+                const size_t gws = size / blockSize + (size % blockSize > 0 ? 1 : 0);
+
+                DNN_SAFE_V(dnnl::impl::xpu::ocl::usm::set_kernel_arg(engine_, ocl_kernel, 0, mem_handle));
+                clSetKernelArg(ocl_kernel, 1, sizeof(uint64_t), &buffSize);
+                clSetKernelArg(ocl_kernel, 2, sizeof(uint64_t), &blockSize);
+                clSetKernelArg(ocl_kernel, 3, sizeof(uint64_t), &seed);
+
+                clEnqueueNDRangeKernel(ocl_queue, ocl_kernel, 1, nullptr, &gws, nullptr, 0, nullptr, nullptr);
+
+                DNN_SAFE_V(dnnl_stream_wait(stream));
+                return dnnl_status_t::dnnl_success;
             }
         }
 #endif

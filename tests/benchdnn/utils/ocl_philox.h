@@ -48,21 +48,18 @@ inline uint philox_4x32(long idx, uint seed) {
 
 __kernel void philox_fill_kernel(
         __global uint *data, 
-        long nbytes, 
-        long blockSize,
-        long seed) {
-    size_t gid = get_global_id(0);
-    size_t startOffset = gid * blockSize;
+        ulong nbytes, 
+        ulong blockSize,
+        ulong seed) {
+    ulong gid = get_global_id(0);
+    ulong startOffset = gid * blockSize;
 
     if (startOffset >= nbytes) return;
     size_t endOffset = startOffset + blockSize;
     if (endOffset > nbytes) endOffset = nbytes;
-
-    size_t tail = (endOffset - startOffset) % 4;
     
-    for (size_t i = startOffset; i < (endOffset - tail); i+=4) {
-        uint val = philox_4x32(i, seed) & INF_NAN_MASK;
-        data[i] = val;
+    for (ulong i = startOffset; i < endOffset; i+=4) {
+        data[i] = philox_4x32(i, seed) & INF_NAN_MASK;
     }
 }
 )CLC";
